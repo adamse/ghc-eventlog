@@ -23,23 +23,23 @@ pub struct EventType {
 pub trait EventlogParser {
     fn event_start(&mut self, _id: u16, _time: u64, _size: usize) {}
 
-    fn event_unknown(&mut self, _tag: u16, _time: u64, _bytes: &[u8]) {}
+    fn event_unknown(&mut self, _tag: u16, _time: u64, _bytes: Vec<u8>) {}
 
     fn event_block_marker(&mut self, _time: u64, _block_size: u32, _time_end: u64, _capno: u16) {}
-    fn event_rts_identifier(&mut self, _time: u64, _capset: u32, _name: &[u8]) {}
+    fn event_rts_identifier(&mut self, _time: u64, _capset: u32, _name: Vec<u8>) {}
 
     fn event_wall_clock_time(&mut self, _time: u64, _capset: u32, _sec: u64, _nsec: u32) {}
     fn event_osprocess_pid(&mut self, _time: u64, _capset: u32, _pid: u32) {}
     fn event_osprocess_ppid(&mut self, _time: u64, _capset: u32, _ppid: u32) {}
-    fn event_program_args(&mut self, _time: u64, _args: &[u8]) {}
-    fn event_program_env(&mut self, _time: u64, _env: &[u8]) {}
+    fn event_program_args(&mut self, _time: u64, _args: Vec<u8>) {}
+    fn event_program_env(&mut self, _time: u64, _env: Vec<u8>) {}
 
     fn event_spark_counters(&mut self, _time: u64, _counters: [u64; 7]) {}
 
     fn event_thread_create(&mut self, _time: u64, _threadid: u32) {}
     fn event_thread_run(&mut self, _time: u64, _threadid: u32) {}
     fn event_thread_stop(&mut self, _time: u64, _threadid: u32, _status: u16, _block_threadid: u32) {}
-    fn event_thread_label(&mut self, _time: u64, _threadid: u32, _label: &[u8]) {}
+    fn event_thread_label(&mut self, _time: u64, _threadid: u32, _label: Vec<u8>) {}
     fn event_thread_runnable(&mut self, _time: u64, _threadid: u32) {}
     fn event_thread_migrate(&mut self, _time: u64, _threadid: u32, _capno: u16) {}
     fn event_thread_wakeup(&mut self, _time: u64, _threadid: u32, _capno: u16) {}
@@ -68,7 +68,7 @@ pub trait EventlogParser {
     fn event_blocks_size(&mut self, _time: u64, _capset: u32, _blocks: u64) {}
     fn event_mem_return(&mut self, _time: u64, _capset: u32, _mblocks: u32, _retain: u32, _return_: u32) {}
 
-    fn event_user_msg(&mut self, _time: u64, _bytes: &[u8]) {}
+    fn event_user_msg(&mut self, _time: u64, _bytes: Vec<u8>) {}
 
     fn event_cap_create(&mut self, _time: u64, _capno: u16) {}
     fn event_cap_delete(&mut self, _time: u64, _capno: u16) {}
@@ -106,7 +106,7 @@ impl EventlogParser for PrintEvents {
     fn event_start(&mut self, _id: u16, _time: u64, _size: usize) {
         self.current_block_remaining -= (2 + 8 + _size) as i64;
     }
-    fn event_unknown(&mut self, id: u16, _time: u64, bytes: &[u8]) {
+    fn event_unknown(&mut self, id: u16, _time: u64, bytes: Vec<u8>) {
         self.start(_time);
         println!("[unknown {id}] {} bytes", bytes.len());
     }
@@ -180,7 +180,7 @@ impl EventlogParser for PrintEvents {
         self.start(_time);
         println!("thread stop ti:{_threadid}");
     }
-    fn event_thread_label(&mut self, _time: u64, _threadid: u32, _label: &[u8]) {
+    fn event_thread_label(&mut self, _time: u64, _threadid: u32, _label: Vec<u8>) {
         self.start(_time);
         println!("thread label ti:{_threadid}");
     }
@@ -263,6 +263,10 @@ pub enum Ev {
     ThreadCreate {
         id: u32,
     },
+    ThreadLabel {
+        id: u32,
+        label: String,
+    },
     ThreadRun {
         id: u32,
     },
@@ -332,7 +336,7 @@ impl EventlogParser for SchedEvents {
         self.current_block_remaining = _block_size as i64;
     }
 
-    fn event_unknown(&mut self, id: u16, _time: u64, _bytes: &[u8]) {
+    fn event_unknown(&mut self, id: u16, _time: u64, _bytes: Vec<u8>) {
         panic!("unknown event {id} len={}", _bytes.len());
     }
 
@@ -374,10 +378,10 @@ impl EventlogParser for SchedEvents {
         let ev = Ev::ThreadStop { id, status: StopStatus::from(status), block_on };
         self.add(_time, ev);
     }
-    /*fn event_thread_label(&mut self, _time: u64, _threadid: u32, _label: &[u8]) {
-        let ev = Ev::ThreadLabel
+    fn event_thread_label(&mut self, _time: u64, id: u32, _label: Vec<u8>) {
+        let ev = Ev::ThreadLabel { id, label: String::from_utf8(_label).unwrap() };
         self.add(_time, ev);
-    }*/
+    }
     fn event_thread_runnable(&mut self, _time: u64, id: u32) {
         let ev = Ev::ThreadRunnable { id };
         self.add(_time, ev);
@@ -599,7 +603,7 @@ pub fn parse<File: AsRef<Path>, Parser: EventlogParser>(file: File, handle: &mut
             // USER_MSG
             19 => {
                 let message = bytes!(size);
-                handle.event_user_msg(time, &message[..]);
+                handle.event_user_msg(time, message);
             },
             // GC_IDLE
             20 => {
@@ -640,12 +644,12 @@ pub fn parse<File: AsRef<Path>, Parser: EventlogParser>(file: File, handle: &mut
             29 => {
                 let capset = num!(u32);
                 let bytes = bytes!(size - 4);
-                handle.event_rts_identifier(time, capset, &bytes[..]);
+                handle.event_rts_identifier(time, capset, bytes);
             },
             // PROGRAM_ARGS
             30 => {
                 let args = bytes!(size);
-                handle.event_program_args(time, &args[..]);
+                handle.event_program_args(time, args);
             },
             // OSPROCESS_PID
             32 => {
@@ -678,7 +682,7 @@ pub fn parse<File: AsRef<Path>, Parser: EventlogParser>(file: File, handle: &mut
             44 => {
                 let threadid = num!(u32);
                 let label = bytes!(size - 4);
-                handle.event_thread_label(time, threadid, &label[..]);
+                handle.event_thread_label(time, threadid, label);
             },
             // CAP_CREATE
             45 => {
@@ -776,7 +780,7 @@ pub fn parse<File: AsRef<Path>, Parser: EventlogParser>(file: File, handle: &mut
             },
             _ => {
                 let bytes = bytes!(size);
-                handle.event_unknown(id, time, &bytes[..]);
+                handle.event_unknown(id, time, bytes);
             },
         }
 
@@ -789,7 +793,8 @@ fn main() {
     // let mut printer = PrintEvents::new();
     // parse("./ghc-9.4.4.eventlog", &mut printer);
     let mut printer = SchedEvents::new();
-    parse("./ghc-9.4.4.eventlog", &mut printer);
+    // parse("./ghc-9.4.4.eventlog", &mut printer);
+    parse("./main.eventlog", &mut printer);
     for (time, events) in printer.ordered {
         for (mcap, event) in events {
             print!("[{time}]");
