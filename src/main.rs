@@ -1,11 +1,6 @@
 #![feature(const_size_of_val)]
 #![feature(buf_read_has_data_left)]
 
-
-
-
-
-
 mod parse;
 
 use crate::parse::*;

@@ -14,15 +14,27 @@ pub struct EventType {
     pub descr: String,
 }
 
-// an os thread has a cap
-// a cap is running a thread
-
+/// Implement the methods of this trait for the events you require.
+///
+/// The methods are named `event_` and then the name shown in the documentation
+/// <https://ghc.gitlab.haskell.org/ghc/doc/users_guide/eventlog-formats.html>
+///
 pub trait EventlogParser {
+    /// Called at before the start of every event
+    ///
+    /// The `size` argument is the size of the payload, the whole event is `size + 2 + 8` bytes
+    /// long (ie with the event header).
     fn event_start(&mut self, _id: u16, _time: u64, _size: usize) {}
 
+    /// Called for unknown events
     fn event_unknown(&mut self, _tag: u16, _time: u64, _bytes: Vec<u8>) {}
 
+    /// This event marks the start of a block of events. This is used to set note the capaiblity
+    /// the following events are tied to.
+    ///
+    /// `block_size` is the size in bytes of the related events (including the event headers).
     fn event_block_marker(&mut self, _time: u64, _block_size: u32, _time_end: u64, _capno: u16) {}
+
     fn event_rts_identifier(&mut self, _time: u64, _capset: u32, _name: Vec<u8>) {}
 
     fn event_wall_clock_time(&mut self, _time: u64, _capset: u32, _sec: u64, _nsec: u32) {}
@@ -78,39 +90,40 @@ pub trait EventlogParser {
 }
 
 
-///
-/// ```
-/// EventLog :
-///       EVENT_HEADER_BEGIN 4xWord8 -- 'hdre'
-///       EVENT_HET_BEGIN 4xWord8 -- 'hetb'
-///       EventType*
-///       EVENT_HET_END 4xWord8 -- 'hete'
-///       EVENT_HEADER_END 4xWord8 -- 'hetb'
-///       EVENT_DATA_BEGIN 4xWord8 -- 'datb'
-///       Event*
-///       EVENT_DATA_END Word16 -- 0xffff
-///
-/// EventType :
-///       EVENT_ET_BEGIN
-///       Word16         -- event type id, unique identifier for this event
-///       Int16          -- >=0  size of the event record in bytes (minus the event type id and timestamp fields)
-///                      -- -1   variable size
-///       Word32         -- size of the event description in bytes
-///       Word8*         -- event description, UTF8 encoded string describing the event
-///       Word32         -- size of the extra info in bytes
-///       Word8*         -- extra info (for future extensions)
-///       EVENT_ET_END   --
-///
-/// Event :
-///       Word16         -- event type id, as included in the event log header
-///       Word64         -- timestamp (nanoseconds)
-///       [Word16]       -- length of the rest (optional, for variable-sized events only)
-///       ... event specific info ...
-/// ```
-pub fn parse<File: AsRef<Path>, Parser: EventlogParser>(file: File, handle: &mut Parser) {
+/// Parse an eventlog with the provided parser.
+pub fn parse<FilePath: AsRef<Path>, Parser: EventlogParser>(path: FilePath, handle: &mut Parser) {
+    // ```
+    // EventLog :
+    //       EVENT_HEADER_BEGIN 4xWord8 -- 'hdre'
+    //       EVENT_HET_BEGIN 4xWord8 -- 'hetb'
+    //       EventType*
+    //       EVENT_HET_END 4xWord8 -- 'hete'
+    //       EVENT_HEADER_END 4xWord8 -- 'hetb'
+    //       EVENT_DATA_BEGIN 4xWord8 -- 'datb'
+    //       Event*
+    //       EVENT_DATA_END Word16 -- 0xffff
+    //
+    // EventType :
+    //       EVENT_ET_BEGIN
+    //       Word16         -- event type id, unique identifier for this event
+    //       Int16          -- >=0  size of the event record in bytes (minus the event type id and timestamp fields)
+    //                      -- -1   variable size
+    //       Word32         -- size of the event description in bytes
+    //       Word8*         -- event description, UTF8 encoded string describing the event
+    //       Word32         -- size of the extra info in bytes
+    //       Word8*         -- extra info (for future extensions)
+    //       EVENT_ET_END   --
+    //
+    // Event :
+    //       Word16         -- event type id, as included in the event log header
+    //       Word64         -- timestamp (nanoseconds)
+    //       [Word16]       -- length of the rest (optional, for variable-sized events only)
+    //       ... event specific info ...
+    // ```
+
     let file = OpenOptions::new()
         .read(true)
-        .open(file).unwrap();
+        .open(path).unwrap();
 
     let mut reader = std::io::BufReader::new(file);
 
